@@ -1,0 +1,311 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  lint:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: DeLaGuardo/setup-clj-kondo@master
+        with:
+          version: '2021.08.06'
+
+      - uses: actions/checkout@v2
+
+      - name: clj-kondo
+        run: clj-kondo --lint src
+
+      - name: Install lein deps
+        run: lein deps
+
+      - name: Lein Kibit
+        run: lein kibit
+
+  lein_test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install dependencies
+      run: lein deps
+
+    - name: Run tests
+      run: lein test
+
+  build_jar:
+    name: Build JAR
+
+    needs:
+      - lint
+      - lein_test
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix:
+        target:
+          - all.jar
+
+    steps:
+
+      - uses: actions/checkout@v2
+
+      - name: Lein
+        run: lein uberjar
+
+      # - name: Get tag
+      #   id: tag
+      #   uses: dawidd6/action-get-tag@v1
+
+      - name: Move and rename JAR
+        run: mv target/uberjar/op5-license-inspector-*-standalone.jar op5-license-inspector-${{ matrix.target }}
+        # run: mv target/uberjar/op5-license-inspector-${{ steps.tag.outputs.tag }}-standalone.jar op5-license-inspector-${{ matrix.target }}
+
+      - name: Print the current state of the directory
+        run: ls -alh
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v2
+        with:
+          name: op5-license-inspector-${{ matrix.target }}
+          path: op5-license-inspector-${{ matrix.target }}
+
+
+  build_linux:
+    name: Build Linux
+
+    needs:
+      - lint
+      - lein_test
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix:
+        target:
+          - linux-x86_64
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Make
+        run: make
+
+      - name: Move and rename binary
+        run: mv target/op5-license-inspector op5-license-inspector-${{ matrix.target }}
+
+      - name: Print the current state of the directory
+        run: ls -alh
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: op5-license-inspector-${{ matrix.target }}
+          path: op5-license-inspector-${{ matrix.target }}
+
+  build_macos:
+    name: Build macOS
+
+    needs:
+      - build_jar
+
+    runs-on: macos-latest
+
+    strategy:
+      fail-fast: true
+      matrix:
+        target:
+          - apple-darwin-x86_64
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Download artifact
+        uses: actions/download-artifact@v2.0.5
+        with:
+          name: op5-license-inspector-all.jar
+
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          version: '22.1.0'
+          java-version: '11'
+          components: 'native-image'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print the current state of the directory
+        run: ls -alh
+
+      - name: Build Native Image
+        run: |
+          native-image \
+          --no-fallback \
+          --report-unsupported-elements-at-runtime \
+          -H:+ReportExceptionStackTraces \
+          --allow-incomplete-classpath \
+          -jar op5-license-inspector-all.jar \
+          -H:Name=op5-license-inspector-${{ matrix.target }}
+
+      - name: Print the current state of the directory
+        run: ls -alh
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: op5-license-inspector-${{ matrix.target }}
+          path: op5-license-inspector-${{ matrix.target }}
+
+  build_windows:
+    name: Build Windows
+
+    needs:
+      - build_jar
+
+    strategy:
+      fail-fast: true
+      matrix:
+        target:
+          - windows-x86_64
+
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Download artifact
+        uses: actions/download-artifact@v2.0.5
+        with:
+          name: op5-license-inspector-all.jar
+
+      - name: Add developer command prompt for Microsoft Visual C++
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          version: '22.1.0'
+          java-version: '11'
+          components: 'native-image'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print the current state of the directory
+        shell: powershell
+        run: dir
+
+      - name: Build Native Image
+        shell: cmd
+        run: native-image --no-fallback --report-unsupported-elements-at-runtime -H:+ReportExceptionStackTraces --allow-incomplete-classpath -jar op5-license-inspector-all.jar -H:Name=op5-license-inspector-${{ matrix.target }}
+
+      - name: Print the current state of the directory
+        shell: powershell
+        run: dir
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: op5-license-inspector-${{ matrix.target }}.exe
+          path: op5-license-inspector-${{ matrix.target }}.exe
+
+  integration_tests:
+    name: Run integration tests
+
+    needs:
+      - build_linux
+      - build_macos
+      - build_windows
+
+    runs-on: ${{ matrix.os }}
+
+    env:
+      BATS_DIR: "test/com/itrsgroup/bats/"
+      BATS_EXT_URL: "https://raw.githubusercontent.com/mbland/go-script-bash/master/lib/bats"
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+          - os: macos-latest
+            target: apple-darwin-x86_64
+          - os: windows-latest
+            target: windows-x86_64.exe
+
+    steps:
+      - name: Setup BATS (NON-WINDOWS)
+        if: "!contains(matrix.target, 'windows')"
+        uses: mig4/setup-bats@v1
+        with:
+          bats-version: 1.4.1
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Create directory for bats extensions
+        if: "!contains(matrix.target, 'windows')"
+        run: mkdir -p "$BATS_DIR"
+
+      - name: Download bats extensions
+        if: "!contains(matrix.target, 'windows') && success()"
+        run: |
+          curl ${BATS_EXT_URL}/assertion-test-helpers -o ${BATS_DIR}/assertion-test-helpers
+          curl ${BATS_EXT_URL}/assertions -o ${BATS_DIR}/assertions
+          curl ${BATS_EXT_URL}/background-process -o ${BATS_DIR}/background-process
+          curl ${BATS_EXT_URL}/helper-function -o ${BATS_DIR}/helper-function
+          curl ${BATS_EXT_URL}/helpers -o ${BATS_DIR}/helpers
+
+      - name: Display the contents of the test dir
+        if: "!contains(matrix.target, 'windows')"
+        run: ls -Ral test
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v2
+        with:
+          name: op5-license-inspector-${{ matrix.target }}
+
+      - name: Make artifact executable (NON-WINDOWS)
+        if: "!contains(matrix.target, 'windows')"
+        run: chmod +x op5-license-inspector-${{ matrix.target }}
+
+      - name: List directory (NON-WINDOWS)
+        if: "!contains(matrix.target, 'windows')"
+        run: ls -alh
+
+      - name: List directory (WINDOWS)
+        if: "contains(matrix.target, 'windows')"
+        run: dir
+
+      - name: Rename binary (NON-WINDOWS)
+        if: "!contains(matrix.target, 'windows')"
+        run: mv op5-license-inspector-${{ matrix.target }} op5-license-inspector
+
+      - name: Rename binary (WINDOWS)
+        if: "contains(matrix.target, 'windows')"
+        run: mv op5-license-inspector-${{ matrix.target }} op5-license-inspector.exe
+
+      - name: Run tests (NON-WINDOWS)
+        if: "!contains(matrix.target, 'windows')"
+        shell: bash
+        run: bats -r .
+
+      - name: Run the executable with -h (WINDOWS)
+        if: "contains(matrix.target, 'windows')"
+        shell: bash
+        run: ./op5-license-inspector.exe -h
+
+      - name: Run the executable with -v (WINDOWS)
+        if: "contains(matrix.target, 'windows')"
+        shell: bash
+        run: ./op5-license-inspector.exe -v
