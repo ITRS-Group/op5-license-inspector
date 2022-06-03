@@ -1,4 +1,4 @@
-(defproject com.itrsgroup/op5-license-inspector "0.1.5"
+(defproject com.itrsgroup/op5-license-inspector "0.1.6-SNAPSHOT"
   :description "Quickly extract information from OP5 lic files"
   :url "https://github.com/ITRS-Group/op5-license-inspector"
   :license {:name "MIT"
