@@ -15,7 +15,7 @@ jobs:
         with:
           clj-kondo: 'latest'
 
-      - Uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
       - name: clj-kondo
         run: clj-kondo --lint src
