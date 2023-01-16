@@ -1,6 +1,6 @@
 # op5-license-inspector
 
-Use with an OP5 lic file to print some useful information.
+Use with an OP5 lic file to print some useful information. Grab the package or binary of choice from [the latest release page](https://github.com/ITRS-Group/op5-license-inspector/releases/latest).
 
 ## Example
 
