@@ -10,8 +10,9 @@
 (defn license-file?
   [path]
   (let [f (slurp path)]
-    (and (str/starts-with? f "-----BEGIN OP5 LICENSE BLOCK-----\n")
-         (str/ends-with? f "\n-----END OP5 LICENSE BLOCK-----\n"))))
+    (and (str/starts-with? f "-----BEGIN OP5 LICENSE BLOCK-----")
+         (or (str/ends-with? f "-----END OP5 LICENSE BLOCK-----\n")
+             (str/ends-with? f "-----END OP5 LICENSE BLOCK-----\r\n")))))
 
 (defn decoded-license
   [path]
